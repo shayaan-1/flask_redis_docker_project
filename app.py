@@ -15,40 +15,45 @@ from flask_mail import Mail, Message
 from flask_sqlalchemy import SQLAlchemy
 from celery import Celery
 
-
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'top-secret!'
 
+# --------------------------------------------------------------------
 # Flask-Mail configuration
+# --------------------------------------------------------------------
 app.config['MAIL_SERVER'] = 'smtp.googlemail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = 'flask@example.com'
 
+# --------------------------------------------------------------------
 # PostgreSQL configuration
-# PostgreSQL configuration
-if os.getenv("GITHUB_ACTIONS"):
-    # GitHub Actions uses 'localhost' for PostgreSQL service
-    app.config['SQLALCHEMY_DATABASE_URI'] = (
+# Priority → Railway > GitHub Actions > Local Docker
+# --------------------------------------------------------------------
+db_url = (
+    os.getenv('DATABASE_URL')
+    or (
         'postgresql://postgres:postgres@localhost:5432/flaskdb'
+        if os.getenv('GITHUB_ACTIONS')
+        else 'postgresql://postgres:postgres@db:5432/flaskdb'
     )
-else:
-    # Local Docker or dev environment uses 'db'
-    app.config['SQLALCHEMY_DATABASE_URI'] = (
-        'postgresql://postgres:postgres@db:5432/flaskdb'
-    )
-
+)
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# --------------------------------------------------------------------
+# Celery (Redis) configuration
+# Priority → Railway > Local Docker
+# --------------------------------------------------------------------
+redis_url = os.getenv('REDIS_URL') or 'redis://redis:6379/0'
+app.config['CELERY_BROKER_URL'] = redis_url
+app.config['CELERY_RESULT_BACKEND'] = redis_url
 
-# Celery configuration
-app.config['CELERY_BROKER_URL'] = 'redis://redis:6379/0'
-app.config['CELERY_RESULT_BACKEND'] = 'redis://redis:6379/0'
-
+# --------------------------------------------------------------------
 # Initialize extensions
+# --------------------------------------------------------------------
 mail = Mail(app)
 db = SQLAlchemy(app)
 
@@ -57,6 +62,9 @@ celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
 celery.conf.update(app.config)
 
 
+# --------------------------------------------------------------------
+# Database model
+# --------------------------------------------------------------------
 class EmailRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), nullable=False)
@@ -65,6 +73,9 @@ class EmailRecord(db.Model):
     sent_at = db.Column(db.DateTime, server_default=db.func.now())
 
 
+# --------------------------------------------------------------------
+# Celery tasks
+# --------------------------------------------------------------------
 @celery.task
 def send_async_email(email_data):
     msg = Message(
@@ -87,12 +98,13 @@ def send_async_email(email_data):
 
 @celery.task(bind=True)
 def long_task(self):
-    """Background task that runs a long function with progress reports."""
+    """Background task that runs with progress updates."""
     verbs = ['Starting up', 'Booting', 'Repairing', 'Loading', 'Checking']
     adjectives = ['master', 'radiant', 'silent', 'harmonic', 'fast']
     nouns = ['solar array', 'particle reshaper', 'cosmic ray', 'orbiter']
     message = ''
     total = random.randint(10, 50)
+
     for i in range(total):
         if not message or random.random() < 0.25:
             message = '{0} {1} {2}...'.format(
@@ -105,6 +117,7 @@ def long_task(self):
             meta={'current': i, 'total': total, 'status': message},
         )
         time.sleep(1)
+
     return {
         'current': 100,
         'total': 100,
@@ -113,6 +126,9 @@ def long_task(self):
     }
 
 
+# --------------------------------------------------------------------
+# Routes
+# --------------------------------------------------------------------
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'GET':
@@ -134,10 +150,7 @@ def index():
         send_async_email.delay(email_data)
         flash(f'Sending email to {email}')
     else:
-        send_async_email.apply_async(
-            args=[email_data],
-            countdown=60,
-        )
+        send_async_email.apply_async(args=[email_data], countdown=60)
         flash(f'An email will be sent to {email} in one minute')
 
     return redirect(url_for('index'))
@@ -180,5 +193,8 @@ def taskstatus(task_id):
     return jsonify(response)
 
 
+# --------------------------------------------------------------------
+# Entry point
+# --------------------------------------------------------------------
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
