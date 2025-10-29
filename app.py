@@ -28,9 +28,20 @@ app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = 'flask@example.com'
 
 # PostgreSQL configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    'postgresql://postgres:postgres@db:5432/flaskdb'
-)
+# PostgreSQL configuration
+if os.getenv("GITHUB_ACTIONS"):
+    # GitHub Actions uses 'localhost' for PostgreSQL service
+    app.config['SQLALCHEMY_DATABASE_URI'] = (
+        'postgresql://postgres:postgres@localhost:5432/flaskdb'
+    )
+else:
+    # Local Docker or dev environment uses 'db'
+    app.config['SQLALCHEMY_DATABASE_URI'] = (
+        'postgresql://postgres:postgres@db:5432/flaskdb'
+    )
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Celery configuration
