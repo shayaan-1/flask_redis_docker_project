@@ -17,10 +17,14 @@ app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = 'flask@example.com'
+# PostgreSQL configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@db:5432/flaskdb'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 
 # Celery configuration
-app.config['CELERY_BROKER_URL'] = 'redis://localhost:6379/0'
-app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
+app.config['CELERY_BROKER_URL'] = 'redis://redis:6379/0'
+app.config['CELERY_RESULT_BACKEND'] = 'redis://redis:6379/0'
 
 
 # Initialize extensions
@@ -29,17 +33,34 @@ mail = Mail(app)
 # Initialize Celery
 celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
 celery.conf.update(app.config)
+from flask_sqlalchemy import SQLAlchemy
+db = SQLAlchemy(app)
+
+class EmailRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False)
+    subject = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    sent_at = db.Column(db.DateTime, server_default=db.func.now())
 
 
 @celery.task
 def send_async_email(email_data):
-    """Background task to send an email with Flask-Mail."""
     msg = Message(email_data['subject'],
                   sender=app.config['MAIL_DEFAULT_SENDER'],
                   recipients=[email_data['to']])
     msg.body = email_data['body']
+
     with app.app_context():
+        record = EmailRecord(
+            email=email_data['to'],
+            subject=email_data['subject'],
+            body=email_data['body']
+        )
+        db.session.add(record)
+        db.session.commit()
         mail.send(msg)
+
 
 
 @celery.task(bind=True)
@@ -126,4 +147,4 @@ def taskstatus(task_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0')
