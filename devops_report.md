@@ -49,7 +49,7 @@
 
 **Pipeline Flow Diagram (conceptual)**:
 
-![](media/image1.png){width="6.5in" height="1.9854166666666666in"}
+![Github architecture image](media/image.png)
 
 **3. Secret Management Strategy**
 
