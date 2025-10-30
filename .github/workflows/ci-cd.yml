@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-install:
-    name: 🧱 Build & Install
+    name: Build & Install
     runs-on: ubuntu-latest
 
     steps:
@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt
 
   lint-scan:
-    name: 🔍 Lint & Security Scan
+    name: Lint & Security Scan
     runs-on: ubuntu-latest
     needs: build-install
 
@@ -41,7 +41,7 @@ jobs:
         run: bandit -r . || true
 
   test:
-    name: 🧪 Test (with PostgreSQL)
+    name: Test (with PostgreSQL)
     runs-on: ubuntu-latest
     needs: build-install
 
@@ -78,8 +78,8 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_*.py"
 
-  docker-build:
-    name: 🐳 Build Docker Image
+  docker-build-push:
+    name:  Build & Push to DockerHub
     runs-on: ubuntu-latest
     needs: [lint-scan, test]
 
@@ -92,33 +92,29 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and tag Docker image
+      - name: Build Docker image
         run: |
           docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:latest .
 
-      - name: Push Docker image
+      - name: Tag image for main branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:latest \
+          ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:production
+
+      - name: Push Docker image to DockerHub
         run: |
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:latest
 
-  deploy:
-    name: 🚀 Deploy to Docker Hub (Main Only)
-    runs-on: ubuntu-latest
-    needs: [lint-scan, test]
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and tag Docker image
+      - name: Push production tag
+        if: github.ref == 'refs/heads/main'
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:latest .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:production
 
-      - name: Push Docker image
+      - name: Deployment Summary
         run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:latest
+          echo "Docker image successfully deployed to DockerHub!"
+          echo "Image: ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:latest"
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo " Production tag: ${{ secrets.DOCKERHUB_USERNAME }}/flask-redis-celery:production"
+          fi
