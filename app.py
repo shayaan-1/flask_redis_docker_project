@@ -122,7 +122,7 @@ def long_task(self):
         'current': 100,
         'total': 100,
         'status': 'Task completed!',
-        'result': 42,
+        'result': 59,
     }
 
 
